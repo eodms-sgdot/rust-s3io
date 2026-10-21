@@ -10,7 +10,6 @@ phf = { version = "0.14", default-features = false, features = ["macros"] }
 rust-s3 = { version = "0.38.0", default-features = false, features = ["blocking", "sync"] }
 strum_macros = "0.28"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 url = "2"
 
 [lints.clippy]
