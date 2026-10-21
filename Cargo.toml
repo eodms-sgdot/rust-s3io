@@ -1,0 +1,19 @@
+[package]
+name = "s3io"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+aws-creds = "0.40"
+bytes = "1"
+phf = { version = "0.14", default-features = false, features = ["macros"] }
+rust-s3 = { version = "0.38.0", default-features = false, features = ["blocking", "sync"] }
+strum_macros = "0.28"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+url = "2"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = 0 }
+nursery = "warn"
