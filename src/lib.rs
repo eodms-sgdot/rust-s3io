@@ -40,6 +40,8 @@ pub struct IOStats {
     non_cached_bytes_read: u64,
     cached_reads: u64,
     cached_bytes_read: u64,
+    s3_reads: u64,
+    s3_bytes_read: u64,
 }
 
 impl Seek for S3IO {
@@ -90,7 +92,7 @@ impl Read for S3IO {
         );
         let start = self.pos;
         // don't read beyond the end of the file
-        let end = self.pos + requested_read_size;
+        let end = self.pos + requested_read_size - 1;
         tracing::trace!("S3IO::read - Reading from {start} to {end}");
         for cache_range in &self.cache_ranges {
             // fully within an existing cache range
@@ -126,12 +128,14 @@ impl Read for S3IO {
             "S3IO::read - Not in cache, reading from S3: {start} -> {}",
             start + actual_read_size as u64 - 1
         );
-        let end = self.pos + actual_read_size as u64;
+        let end = self.pos + actual_read_size as u64 - 1;
         let bytes = self
             .client
-            .get_object_range(&self.key, start, Some(end - 1))
+            .get_object_range(&self.key, start, Some(end))
             .map_err(|e| std::io::Error::other(format!("Failed to read from S3: {e}")))?
             .into_bytes();
+        self.stats.s3_reads += 1;
+        self.stats.s3_bytes_read += bytes.len() as u64;
         // copy what was requested into the buffer, even if we read more than requested
         let buflen = buf.len();
         buf[..buflen].copy_from_slice(&bytes[..buflen]);
@@ -213,6 +217,8 @@ impl S3IO {
             let range_start = 0;
             let range_end = range_start + cache_read_size - 1;
             let bytes = client.get_object_range(&key, range_start, Some(range_end))?.into_bytes();
+            stats.s3_reads += 1;
+            stats.s3_bytes_read += bytes.len() as u64;
             let len = bytes.len();
             tracing::trace!(
                 "{key} - Filled front cache with range: {range_start} -> {range_end} - Length: {len}",
@@ -225,6 +231,8 @@ impl S3IO {
             let range_start = size - cache_read_size;
             let range_end = size - 1;
             let bytes = client.get_object_range(&key, range_start, Some(range_end))?.into_bytes();
+            stats.s3_reads += 1;
+            stats.s3_bytes_read += bytes.len() as u64;
             let len = bytes.len();
             tracing::trace!(
                 "{key} - Filled back cache with range: {range_start} -> {range_end} - Length: {len}",
@@ -237,7 +245,7 @@ impl S3IO {
     }
     pub fn stats(&self) -> &IOStats {
         tracing::trace!(
-            "S3IO::close - Bucket: {}, Key: {}, NonCachedReads: {}, NonCachedBytesRead: {}, CachedReads: {}, CachedBytesRead: {}",
+            "S3IO::stats - Bucket: {}, Key: {}, NonCachedReads: {}, NonCachedBytesRead: {}, CachedReads: {}, CachedBytesRead: {}",
             self.bucket,
             self.key,
             self.stats.non_cached_reads,
