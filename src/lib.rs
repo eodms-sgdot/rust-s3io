@@ -82,7 +82,10 @@ impl Seek for S3IO {
 
 impl Read for S3IO {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        let requested_read_size = buf.len() as u64;
+        let requested_read_size = std::cmp::min(buf.len() as u64, self.size - self.pos);
+        if requested_read_size == 0 {
+            return Ok(0);
+        }
         tracing::trace!(
             "S3IO::read - Bucket: {}, Key: {}, Pos: {}, BufLen: {}, ReadSize: {requested_read_size}",
             self.bucket,
@@ -92,7 +95,7 @@ impl Read for S3IO {
         );
         let start = self.pos;
         // don't read beyond the end of the file
-        let end = self.pos + requested_read_size - 1;
+        let end = (self.pos + requested_read_size - 1).min(self.size - 1);
         tracing::trace!("S3IO::read - Reading from {start} to {end}");
         for cache_range in &self.cache_ranges {
             // fully within an existing cache range
@@ -115,10 +118,6 @@ impl Read for S3IO {
             }
         }
         let actual_read_size = if requested_read_size < self.min_read {
-            tracing::trace!(
-                "S3IO::read - Requested read size {requested_read_size} is less than min_read {}, using min_read",
-                self.min_read
-            );
             std::cmp::min(self.size - self.pos, self.min_read) // don't read beyond the end of the file
         } else {
             requested_read_size
@@ -136,11 +135,14 @@ impl Read for S3IO {
             .into_bytes();
         self.stats.s3_reads += 1;
         self.stats.s3_bytes_read += bytes.len() as u64;
-        // copy what was requested into the buffer, even if we read more than requested
-        let buflen = buf.len();
+        let buflen = std::cmp::min(buf.len(), requested_read_size as usize);
         buf[..buflen].copy_from_slice(&bytes[..buflen]);
         self.pos += requested_read_size;
-        tracing::trace!("S3IO::read - Read {requested_read_size} bytes from S3, pos is now {}", self.pos);
+        tracing::trace!(
+            "S3IO::read - Read {} bytes from S3, copying {buflen} bytes to buffer and pos is now {}",
+            bytes.len(),
+            self.pos
+        );
         self.stats.non_cached_reads += 1;
         self.stats.non_cached_bytes_read += requested_read_size;
         // add the new range to the cache_ranges vector
